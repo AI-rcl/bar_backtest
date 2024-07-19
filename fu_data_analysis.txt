@@ -1,0 +1,32 @@
+import os
+import pandas as pd
+import glob
+import matplotlib.pyplot as plt
+import talib as ta
+import numpy as np
+
+future = 'fu'
+pd_list = []
+file_list = glob.glob('../unprocess_data/*/fu*')
+print(file_list)
+for file in file_list:
+    df = pd.read_csv(file)
+    pd_list.append(df)
+total_df = pd.concat(pd_list)
+total_df = total_df.iloc[:,[1,4,5,7,8]]
+total_df.to_csv('fu88.csv',index = None)
+
+origion = pd.read_csv('fu88.csv')
+origion['datetime'] = pd.to_datetime(origion['datetime'])
+origion.set_index('datetime',inplace=True)
+origion = origion.dropna(axis=0)
+origion.head()
+
+data = origion.resample('10min').agg(
+    {
+        'open':'first',
+        'high':'max',
+        'low':'min',
+        'close':'last'
+    }
+).dropna()
