@@ -1,136 +1,149 @@
-import os
-import pandas as pd
-import talib as ta
 import numpy as np
+import pandas as pd
+import time
+from multiprocessing import Pool,cpu_count,Value,Manager
+import multiprocessing
+import os
+import talib as ta
 from tqdm import tqdm
+import json
+from datetime import datetime
+from multiprocessing import Pool,cpu_count
+import multiprocessing
 
-origion = pd.read_csv('fu88.csv')
-origion['datetime'] = pd.to_datetime(origion['datetime'])
-origion.set_index('datetime',inplace=True)
-origion = origion.dropna(axis=0)
-origion.head()
-
-data = origion.resample('1min').agg(
+def get_data(path,start=20000,period=1):
+    origion = pd.read_csv(path)
+    origion['datetime'] = pd.to_datetime(origion['datetime'])
+    origion.set_index('datetime',inplace=True)
+    origion = origion.dropna(axis=0)
+    data = origion.resample(f'{period}min').agg(
     {
         'open':'first',
         'high':'max',
         'low':'min',
         'close':'last'
-    }
-).dropna()
+    }).dropna()
+    if start >0 :
+        start = -1*start
 
-data['sma'] = ta.SMA(data['close'],3)
-data['slope'] = ta.LINEARREG_SLOPE(data['sma'],3)
+    return data[start:]
 
-h1 = data[(data['slope'] >= 0.5)].index
-l1 =  data[(data['slope'] <= -0.5)].index
 
-data['sign']=0
-data['sign'][h1] = 1
-data['sign'][l1] = -1
+def backtest(args,is_fitting = True):
 
-test_data = data[-130000:-20000]
+    data = args[0]
+    result = args[1]
+    benifit = args[2]
+    loss = args[3]
+    drop = args[4]
+    assert(benifit>0)
+    assert(loss<0)
+    assert(drop>0)
 
-pos = 0
+    data['sma'] = ta.SMA(data['close'],3)
+    data['slope'] = ta.LINEARREG_SLOPE(data['sma'],3)
+    h1 = data[(data['slope'] <= 0.5)].index
+    l1 =  data[(data['slope'] >= -0.5)].index
+    data['sign']=0
+    data.loc[h1,'sign'] = 1
+    data.loc[l1,'sign'] = -1
+    test_data = data
 
-long_benifit = 15
-long_loss = -22
-short_benifit =15
-short_loss = -22
-max_drop = 5
-min_drop = 5
-
-long_diff = []
-short_diff = []
-total_diff = []
-direction = []
-changed = []
-cumsum = []
-pos_price = 0
-min_price = 0 
-max_price = 0
-drop = 0
-
-for row in tqdm(test_data.iterrows()):
-    sign = row[1]['sign']
-
-    roll_sum = sum(changed[-3:])
-    roll_sum_1 = sum(changed[-4:-1])
-    roll_diff = roll_sum - roll_sum_1
-    roll_total = roll_sum+roll_diff
-
-    # if roll_total >= 45 and roll_total <= 150:
-    #     if sign == -1:
-    #         sign *= -1
-    # elif roll_total <= -45 and roll_total >= -150:
-    #     if sign == 1:
-    #         sign *= -1
     
-    if pos == 0:
-        if sign == 1:
-            pos = 1
-            pos_price = row[1]['close']+1
-            max_price = pos_price
-            
-        elif sign == -1:
-            pos = -1
-            pos_price = row[1]['close']-1
-            min_price = pos_price
-            
-    
-    elif pos == 1:
-        # 用high和low计算收盘
-        max_close = row[1]['high'] -1
-        min_close = row[1]['low'] + 1
-        diff = max_close - pos_price
-        max_price = max(max_price, row[1]['high'])
-        drop = max_price - min_close
-        if diff>=long_benifit and drop >= max_drop:
-            long_diff.append(diff)
-            pos = 0
-            total_diff.append(diff)
-            direction.append(1)
-            changed.append(diff)
-            cumsum.append(sum(changed))
-        elif diff<= long_loss:
-            long_diff.append(diff)
-            pos = 0  
-            total_diff.append(diff)
-            direction.append(1)
-            changed.append(diff)
-            cumsum.append(sum(changed))
-    elif pos == -1:
-        # 用high和low计算收盘
-        max_close = row[1]['high'] -1
-        min_close = row[1]['low'] + 1
-        diff = pos_price - min_close
-        min_price = min(min_price, row[1]['low'])
-        drop = max_close - min_price
-        if diff>=short_benifit and drop >= min_drop:
-            short_diff.append(diff)
-            pos = 0
-            total_diff.append(diff)
-            direction.append(-1)
-            changed.append(-1*diff)
-            cumsum.append(sum(changed))
-        elif diff<= short_loss:
-            short_diff.append(diff)
-            pos = 0
-            total_diff.append(diff)
-            direction.append(-1)
-            changed.append(-1*diff)
-            cumsum.append(sum(changed))
-print(sum(long_diff),len(long_diff))
-print(sum(short_diff),len(short_diff))
 
-for i,j in zip(direction,total_diff):
-    print(i,j)
+    pos = 0
+    long_diff = []
+    short_diff = []
+    total_diff = []
+    direction = []
+    changed = []
+    pos_price = 0
+    min_price = 0 
+    max_price = 0
 
-test_dict = {'direction':direction,'total_diff':total_diff}
-test_pd = pd.DataFrame(test_dict)
-test_pd['changed'] = test_pd['direction']*test_pd['total_diff']
-# tc = test_pd['changed'].cumsum()
-# test_pd['total_changed'] = tc
-test_pd['roll_changed'] = test_pd['changed'].rolling(3).sum()
-test_pd['diff_changed'] = test_pd['roll_changed'].diff()
-test_pd[:50]
+    for row in tqdm(test_data.iterrows()):
+        sign = row[1]['sign']    
+        if pos == 0:
+            if sign == 1:
+                pos = 1
+                pos_price = row[1]['close']+1
+                max_price = pos_price
+                min_price = pos_price
+                
+            elif sign == -1:
+                pos = -1
+                pos_price = row[1]['close']-1
+                min_price = pos_price
+                max_price = pos_price
+        
+        elif pos == 1:
+            # 用high和low计算收盘
+            max_price = max(max_price, row[1]['high'])
+            min_price = min(min_price,row[1]['low'])
+            price_benifit = max_price - drop
+            diff_0 = price_benifit - pos_price
+            diff_1 = min_price - pos_price
+            
+            if price_benifit <= row[1]['high'] and price_benifit >= row[1]["low"] and  diff_0 >= benifit:
+                long_diff.append(diff_0)
+                pos = 0
+                total_diff.append(diff_0)
+                direction.append(1)
+                changed.append(diff_0)
+                # cumsum.append(sum(changed))
+            elif diff_1 <= loss:
+                long_diff.append(diff_1)
+                pos = 0  
+                total_diff.append(diff_1)
+                direction.append(1)
+                changed.append(diff_1)
+                # cumsum.append(sum(changed))
+                
+        elif pos == -1:
+            # 用high和low计算收盘
+            max_price = max(max_price, row[1]['high'])
+            min_price = min(min_price,row[1]['low'])
+            price_benifit = min_price + drop
+            diff_0 =  pos_price - price_benifit 
+            diff_1 = pos_price - max_price
+            
+            if price_benifit <= row[1]['high'] and price_benifit >= row[1]["low"] and diff_0 >= benifit:
+                short_diff.append(diff_0)
+                pos = 0
+                total_diff.append(diff_0)
+                direction.append(-1)
+                changed.append(-1*diff_0)
+
+            elif diff_1<= loss:
+                short_diff.append(diff_1)
+                pos = 0
+                total_diff.append(diff_1)
+                direction.append(-1)
+                changed.append(-1*diff_1)
+
+    res = {"long_diff":sum(long_diff),"long_trades":len(long_diff),
+            "short_diff":sum(short_diff),"short_trades":len(short_diff)}
+    result.append({f"{benifit}_{loss}_{drop}":res})
+
+def write_result(result):
+    base_name = os.path.basename(__file__).split('.')[0]
+    now = datetime.now().strftime('%Y-%m-%d %H-%M')
+    file_name = 'D:/Code/python_project/bar_analysis/result/'+base_name +f'_{now}.jsonl'
+    with open(file_name,'w') as f:
+        for data in result:
+            # 将每个数据对象转换为JSON字符串并写入文件
+            f.write(json.dumps(data, ensure_ascii=False) + '\n')
+
+if __name__ == "__main__":
+    manager = Manager()
+    result = manager.list()
+    lock = manager.Lock()
+    input_path = "D:/Code/jupyter_project/data_analysis/bar_analysis/bar_backtest/fu数据分析/fu88.csv"
+    data = get_data(input_path)
+    param =[(data,result,20,-22,11),(data,result,14,-18,8)]
+    worker_num = 1
+    pool = Pool(worker_num)
+    pool.map(backtest, param)
+    pool.close()
+    pool.join()
+    write_result(result)
