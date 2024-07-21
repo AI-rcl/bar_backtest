@@ -37,7 +37,8 @@ def backtest(args,is_fitting = True):
     loss = args[3]
     drop = args[4]
     assert(benifit>0)
-    assert(loss<0)
+    if loss >0:
+        loss *= -1
     assert(drop>0)
 
     data['sma'] = ta.SMA(data['close'],3)
@@ -48,8 +49,6 @@ def backtest(args,is_fitting = True):
     data.loc[h1,'sign'] = 1
     data.loc[l1,'sign'] = -1
     test_data = data
-
-    
 
     pos = 0
     long_diff = []
@@ -120,30 +119,117 @@ def backtest(args,is_fitting = True):
                 total_diff.append(diff_1)
                 direction.append(-1)
                 changed.append(-1*diff_1)
+    if is_fitting == True:
+        res = {"long_diff":sum(long_diff),"long_trades":len(long_diff),
+                "short_diff":sum(short_diff),"short_trades":len(short_diff)}
+        result.append({f"{benifit}_{loss}_{drop}":res})
+    else:
+        base_name = os.path.basename(__file__).split('.')[0]
+        file_name = 'bar_backtest/result/'+base_name +f'-backtest_result.csv'
+        res_dict = {'direction':direction,'total_diff':total_diff,'changed':changed}
+        res_pd = pd.DataFrame(res_dict)
+        res_pd.to_csv(file_name,index=None)
 
-    res = {"long_diff":sum(long_diff),"long_trades":len(long_diff),
-            "short_diff":sum(short_diff),"short_trades":len(short_diff)}
-    result.append({f"{benifit}_{loss}_{drop}":res})
 
-def write_result(result):
+def write_fitting_result(result):
     base_name = os.path.basename(__file__).split('.')[0]
     now = datetime.now().strftime('%Y-%m-%d %H-%M')
-    file_name = 'D:/Code/python_project/bar_analysis/result/'+base_name +f'_{now}.jsonl'
+    file_name = 'bar_backtest/result/'+base_name +f'_{now}.jsonl'
+    best_param_id = 0
+    best_benifit = 0
+    for i,res in enumerate(result):
+        for k,v in res.items():
+            if v['long_diff']+v['short_diff'] > best_benifit:
+                best_benifit = v['long_diff']+v['short_diff']
+                best_param_id = i
+    write_best_param(result[best_param_id])
+
     with open(file_name,'w') as f:
         for data in result:
             # 将每个数据对象转换为JSON字符串并写入文件
             f.write(json.dumps(data, ensure_ascii=False) + '\n')
 
-if __name__ == "__main__":
+def write_best_param(result):
+    base_name = os.path.basename(__file__).split('.')[0]
+    file_name = file_name = 'bar_backtest/result/'+base_name +'-best_param.jsonl'
+    if os.path.exists(file_name):
+        with open(file_name,'r') as f:
+            base_param = json.load(f)
+        base_diff = list(base_param.values())[0]
+        new_diff = list(result.values())[0]
+        base_benifit = base_diff['long_diff']+base_diff['short_diff']
+        new_benifit = new_diff['long_diff']+new_diff['short_diff']
+        if base_benifit > new_benifit:
+            best_param = base_param
+        else:
+            best_param = result
+    else:
+        best_param = result
+    
+    with open(file_name,'w') as f:
+        json.dump(best_param,f)
+
+def read_best_parm():
+    base_name = os.path.basename(__file__).split('.')[0]
+    file_name = file_name = 'bar_backtest/result/'+base_name +'-best_param.jsonl'
+    if os.path.exists(file_name):
+        with open(file_name,'r') as f:
+            base_param = json.load(f)
+            config_str = list(base_param.keys())[0]
+            configs = [int(i) for i in config_str.split('_')]
+        return configs
+    else:
+        raise FileExistsError
+
+def multi_backtest(input_path,data,worker_num =2,**config):
     manager = Manager()
     result = manager.list()
-    lock = manager.Lock()
-    input_path = "D:/Code/jupyter_project/data_analysis/bar_analysis/bar_backtest/fu数据分析/fu88.csv"
-    data = get_data(input_path)
-    param =[(data,result,20,-22,11),(data,result,14,-18,8)]
-    worker_num = 1
+    
+    config_list = set_param(**config)
+    param =[(data,result,i[0],i[1],i[2]) for i in config_list]
     pool = Pool(worker_num)
     pool.map(backtest, param)
     pool.close()
     pool.join()
-    write_result(result)
+    write_fitting_result(result)
+
+def set_param(**configs):
+    print(configs)
+    benifit = configs['benifit']
+    loss = configs['loss']
+    drop = configs['drop']
+
+    benifit_list = list(range(benifit[0],benifit[1],benifit[2]))
+    loss_list = list(range(loss[0],loss[1],loss[2]))
+    drop_list = list(range(drop[0],drop[1],drop[2]))
+
+    config_list = []
+    for i in benifit_list:
+        for j in loss_list:
+            for k in drop_list:
+                conf = [i,j,k]
+                config_list.append(conf)
+    return config_list
+
+if __name__ == "__main__":
+    """
+        参数顺序data,result,benifit,loss,drop
+    """
+    is_fitting = False
+    input_path = "D:/code/jupyter_project/vnpy练习\k线数据分析/fu_data_analysis/fu88.csv"
+    start = 20000
+    data = get_data(input_path,start=start)
+    config = {
+        "benifit":[32,42,2],
+        "loss":[26,36,2],
+        "drop":[13,20,2]
+    }
+
+    if is_fitting:
+        multi_backtest(input_path,data,worker_num=4,**config)
+    else:
+        param = read_best_parm()
+        result = {}
+        args = (data,result,param[0],param[1],param[2])
+        backtest(args=args,is_fitting=is_fitting )
+    
