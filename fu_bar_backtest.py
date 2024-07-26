@@ -11,7 +11,12 @@ from datetime import datetime
 from multiprocessing import Pool,cpu_count
 import multiprocessing
 
-def get_data(path,start=20000,period=1):
+FILE_NAME = os.path.basename(__file__).split('.')[0]
+RES_PATH = f'bar_analysis/fu_bar/result/{FILE_NAME}/'
+if not os.path.exists(RES_PATH):
+    os.makedirs(RES_PATH)
+
+def get_data(path,start=20000,end=50000,period=1):
     origion = pd.read_csv(path)
     origion['datetime'] = pd.to_datetime(origion['datetime'])
     origion.set_index('datetime',inplace=True)
@@ -23,11 +28,9 @@ def get_data(path,start=20000,period=1):
         'low':'min',
         'close':'last'
     }).dropna()
-    if start >0 :
-        start = -1*start
 
-    return data[start:]
 
+    return data[start:end]
 
 def backtest(args,is_fitting = True):
 
@@ -35,20 +38,12 @@ def backtest(args,is_fitting = True):
     result = args[1]
     benifit = args[2]
     loss = args[3]
-    drop = args[4]
+
     assert(benifit>0)
     if loss >0:
         loss *= -1
-    assert(drop>0)
 
-    data['sma'] = ta.SMA(data['close'],3)
-    data['slope'] = ta.LINEARREG_SLOPE(data['sma'],3)
-    h1 = data[(data['slope'] <= 0.5)].index
-    l1 =  data[(data['slope'] >= -0.5)].index
-    data['sign']=0
-    data.loc[h1,'sign'] = 1
-    data.loc[l1,'sign'] = -1
-    test_data = data
+    test_data = cal_sign(data)
 
     pos = 0
     long_diff = []
@@ -79,11 +74,11 @@ def backtest(args,is_fitting = True):
             # 用high和low计算收盘
             max_price = max(max_price, row[1]['high'])
             min_price = min(min_price,row[1]['low'])
-            price_benifit = max_price - drop
-            diff_0 = price_benifit - pos_price
+            close_drop = max_price - row[1]['close']
+            diff_0 = row[1]['close'] - pos_price
             diff_1 = min_price - pos_price
             
-            if price_benifit <= row[1]['high'] and price_benifit >= row[1]["low"] and  diff_0 >= benifit:
+            if close_drop >= benifit and  row[1]['close'] >= pos_price:
                 long_diff.append(diff_0)
                 pos = 0
                 total_diff.append(diff_0)
@@ -91,22 +86,23 @@ def backtest(args,is_fitting = True):
                 changed.append(diff_0)
                 # cumsum.append(sum(changed))
             elif diff_1 <= loss:
-                long_diff.append(diff_1)
+                long_diff.append(loss)
                 pos = 0  
-                total_diff.append(diff_1)
+                total_diff.append(loss)
                 direction.append(1)
-                changed.append(diff_1)
+                changed.append(loss)
                 # cumsum.append(sum(changed))
                 
         elif pos == -1:
             # 用high和low计算收盘
             max_price = max(max_price, row[1]['high'])
             min_price = min(min_price,row[1]['low'])
-            price_benifit = min_price + drop
-            diff_0 =  pos_price - price_benifit 
+            close_drop = row[1]['close'] - min_price
+        
+            diff_0 =  pos_price - row[1]['close'] 
             diff_1 = pos_price - max_price
             
-            if price_benifit <= row[1]['high'] and price_benifit >= row[1]["low"] and diff_0 >= benifit:
+            if close_drop >= benifit and row[1]['close']<=pos_price:
                 short_diff.append(diff_0)
                 pos = 0
                 total_diff.append(diff_0)
@@ -114,27 +110,29 @@ def backtest(args,is_fitting = True):
                 changed.append(-1*diff_0)
 
             elif diff_1<= loss:
-                short_diff.append(diff_1)
+                short_diff.append(loss)
                 pos = 0
-                total_diff.append(diff_1)
+                total_diff.append(loss)
                 direction.append(-1)
-                changed.append(-1*diff_1)
+                changed.append(-1*loss)
     if is_fitting == True:
         res = {"long_diff":sum(long_diff),"long_trades":len(long_diff),
                 "short_diff":sum(short_diff),"short_trades":len(short_diff)}
-        result.append({f"{benifit}_{loss}_{drop}":res})
+        result.append({f"{benifit}_{loss}":res})
     else:
         base_name = os.path.basename(__file__).split('.')[0]
-        file_name = 'bar_backtest/result/'+base_name +f'-backtest_result.csv'
+        file_name = RES_PATH + base_name +f'-backtest_result.csv'
         res_dict = {'direction':direction,'total_diff':total_diff,'changed':changed}
         res_pd = pd.DataFrame(res_dict)
         res_pd.to_csv(file_name,index=None)
+        print("long_diff",sum(long_diff),"long_trades",len(long_diff))
+        print("short_diff",sum(short_diff),"short_trades",len(short_diff))
 
 
 def write_fitting_result(result):
     base_name = os.path.basename(__file__).split('.')[0]
     now = datetime.now().strftime('%Y-%m-%d %H-%M')
-    file_name = 'bar_backtest/result/'+base_name +f'_{now}.jsonl'
+    file_name = RES_PATH+base_name +f'_{now}.jsonl'
     best_param_id = 0
     best_benifit = 0
     for i,res in enumerate(result):
@@ -151,7 +149,7 @@ def write_fitting_result(result):
 
 def write_best_param(result):
     base_name = os.path.basename(__file__).split('.')[0]
-    file_name = file_name = 'bar_backtest/result/'+base_name +'-best_param.jsonl'
+    file_name = file_name = RES_PATH+base_name +'-best_param.jsonl'
     if os.path.exists(file_name):
         with open(file_name,'r') as f:
             base_param = json.load(f)
@@ -171,7 +169,7 @@ def write_best_param(result):
 
 def read_best_parm():
     base_name = os.path.basename(__file__).split('.')[0]
-    file_name = file_name = 'bar_backtest/result/'+base_name +'-best_param.jsonl'
+    file_name = file_name = RES_PATH+base_name +'-best_param.jsonl'
     if os.path.exists(file_name):
         with open(file_name,'r') as f:
             base_param = json.load(f)
@@ -186,7 +184,7 @@ def multi_backtest(input_path,data,worker_num =2,**config):
     result = manager.list()
     
     config_list = set_param(**config)
-    param =[(data,result,i[0],i[1],i[2]) for i in config_list]
+    param =[(data,result,i[0],i[1]) for i in config_list]
     pool = Pool(worker_num)
     pool.map(backtest, param)
     pool.close()
@@ -197,32 +195,42 @@ def set_param(**configs):
     print(configs)
     benifit = configs['benifit']
     loss = configs['loss']
-    drop = configs['drop']
 
     benifit_list = list(range(benifit[0],benifit[1],benifit[2]))
     loss_list = list(range(loss[0],loss[1],loss[2]))
-    drop_list = list(range(drop[0],drop[1],drop[2]))
 
     config_list = []
     for i in benifit_list:
         for j in loss_list:
-            for k in drop_list:
-                conf = [i,j,k]
-                config_list.append(conf)
+            conf = [i,j]
+            config_list.append(conf)
     return config_list
+
+#下单逻辑在这里改
+def cal_sign(data):
+    data['sma'] = ta.SMA(data['close'],3)
+    data['slope'] = ta.LINEARREG_SLOPE(data['sma'],3)
+    data['grad'] = np.gradient(data['slope'])
+    data['close_diff'] = data['close'].diff()
+    h1 = data[(data['close_diff'] <= 10)&(data['grad']>=2)].index
+    l1 =  data[(data['close_diff'] >= -10)&(data['grad']<=-2)].index
+    data['sign']=0
+    data.loc[h1,'sign'] = 1
+    data.loc[l1,'sign'] = -1
+    return data
 
 if __name__ == "__main__":
     """
-        参数顺序data,result,benifit,loss,drop
+        参数顺序data,result,benifit,loss
     """
-    is_fitting = False
-    input_path = "D:/code/jupyter_project/vnpy练习\k线数据分析/fu_data_analysis/fu88.csv"
-    start = 20000
-    data = get_data(input_path,start=start)
+    is_fitting = True
+    input_path = "D:/Code/jupyter_project/data_analysis/bar_analysis/bar_backtest/fu数据分析/fu88.csv"
+    start = 2000
+    end = 8000
+    data = get_data(input_path,start=start,end=end,period=20)
     config = {
-        "benifit":[32,42,2],
-        "loss":[26,36,2],
-        "drop":[13,20,2]
+        "benifit":[12,50,2],
+        "loss":[36,52,2],
     }
 
     if is_fitting:
@@ -230,6 +238,6 @@ if __name__ == "__main__":
     else:
         param = read_best_parm()
         result = {}
-        args = (data,result,param[0],param[1],param[2])
+        args = (data,result,param[0],param[1])
         backtest(args=args,is_fitting=is_fitting )
     
