@@ -30,3 +30,27 @@ data = origion.resample('10min').agg(
         'close':'last'
     }
 ).dropna()
+
+data['sma'] = ta.SMA(data['close'],3)
+data['slope']= ta.LINEARREG_SLOPE(data['sma'],3)
+data['grad'] = np.gradient(data['slope'])
+data['close_diff'] = data['close'].diff()
+#开仓后下一个bar就平仓
+data['close_diff_1'] = data['close'].diff(1).shift(-1)
+
+# 估计多头平仓时收盘价能否成交
+data['lc_diff'] = data['low'].shift(-2) - data['close'].shift(-1)
+# 估计空头平仓时收盘价能否成交
+data['hc_diff'] = data['high'].shift(-2) - data['close'].shift(-1)
+
+data[(data['close_diff']<=6)&(data['grad']>=2)]['close_diff_1'].describe()
+
+#多头平仓时下一个bar 最高价都小于等于平仓卖出价的情况
+h_test = data[(data['close_diff']<=6)&(data['grad']>=2)]
+h_test[h_test['hc_diff']<=0]['hc_diff'].describe()
+
+data[(data['close_diff']>= -6)&(data['grad']<=-2)]['close_diff_1'].describe()
+
+#空头平仓时下一个bar最低价都大于等于平仓赎回价的情况
+l_test = data[(data['close_diff']>= -6)&(data['grad']<=-2)]
+l_test[l_test['lc_diff']>=0]
