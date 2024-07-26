@@ -11,8 +11,9 @@ from datetime import datetime
 from multiprocessing import Pool,cpu_count
 import multiprocessing
 
+BASE_DIR = os.path.dirname(__file__)
 FILE_NAME = os.path.basename(__file__).split('.')[0]
-RES_PATH = f'bar_analysis/fu_bar/result/{FILE_NAME}/'
+RES_PATH = BASE_DIR+f'/result/{FILE_NAME}/'
 if not os.path.exists(RES_PATH):
     os.makedirs(RES_PATH)
 
