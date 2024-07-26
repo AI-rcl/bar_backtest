@@ -39,8 +39,6 @@ def backtest(args,is_fitting = True):
     result = args[1]
     benifit = args[2]
     loss = args[3]
-
-    assert(benifit>0)
     if loss >0:
         loss *= -1
 
@@ -56,6 +54,16 @@ def backtest(args,is_fitting = True):
     min_price = 0 
     max_price = 0
 
+    detail = {}
+    detail['date'] = []
+    detail['open'] = []
+    detail['close'] = []
+    detail['pos_price'] = []
+    detail['max'] = []
+    detail['min'] = []
+    detail['direction'] = []
+    detail['offset'] = []
+
     for row in tqdm(test_data.iterrows()):
         sign = row[1]['sign']    
         if pos == 0:
@@ -64,58 +72,117 @@ def backtest(args,is_fitting = True):
                 pos_price = row[1]['close']+1
                 max_price = pos_price
                 min_price = pos_price
+
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(pos_price)
+                    detail['max'].append(max_price)
+                    detail['min'].append(min_price)
+                    detail['direction'].append(1)
+                    detail['offset'].append('open')
+
                 
             elif sign == -1:
                 pos = -1
                 pos_price = row[1]['close']-1
                 min_price = pos_price
                 max_price = pos_price
+
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(pos_price)
+                    detail['max'].append(max_price)
+                    detail['min'].append(min_price)
+                    detail['direction'].append(-1)
+                    detail['offset'].append('open')
         
         elif pos == 1:
             # 用high和low计算收盘
             max_price = max(max_price, row[1]['high'])
             min_price = min(min_price,row[1]['low'])
+
             close_drop = max_price - row[1]['close']
             diff_0 = row[1]['close'] - pos_price
-            diff_1 = min_price - pos_price
-            
-            if close_drop >= benifit and  row[1]['close'] >= pos_price:
+            diff_1 =  row[1]['low'] - pos_price 
+
+            if diff_1 <= loss:
+                long_diff.append(loss)
+                pos = 0
+                total_diff.append(loss)
+                direction.append(1)
+                changed.append(loss)
+
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(pos_price - loss)
+                    detail['max'].append(max_price)
+                    detail['min'].append(min_price)
+                    detail['direction'].append(-1)
+                    detail['offset'].append('close')
+
+            elif close_drop >= benifit:
                 long_diff.append(diff_0)
                 pos = 0
                 total_diff.append(diff_0)
                 direction.append(1)
                 changed.append(diff_0)
-                # cumsum.append(sum(changed))
-            elif diff_1 <= loss:
-                long_diff.append(loss)
-                pos = 0  
-                total_diff.append(loss)
-                direction.append(1)
-                changed.append(loss)
-                # cumsum.append(sum(changed))
+
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(row[1]['close'])
+                    detail['max'].append(max_price)
+                    detail['min'].append(min_price)
+                    detail['direction'].append(-1)
+                    detail['offset'].append('close')
                 
         elif pos == -1:
-            # 用high和low计算收盘
             max_price = max(max_price, row[1]['high'])
             min_price = min(min_price,row[1]['low'])
             close_drop = row[1]['close'] - min_price
-        
-            diff_0 =  pos_price - row[1]['close'] 
-            diff_1 = pos_price - max_price
             
-            if close_drop >= benifit and row[1]['close']<=pos_price:
-                short_diff.append(diff_0)
-                pos = 0
-                total_diff.append(diff_0)
-                direction.append(-1)
-                changed.append(-1*diff_0)
+            diff_0 =  pos_price - row[1]['close']
+            diff_1 = pos_price - row[1]['high'] 
 
-            elif diff_1<= loss:
+            if diff_1 <= loss:
                 short_diff.append(loss)
                 pos = 0
                 total_diff.append(loss)
                 direction.append(-1)
                 changed.append(-1*loss)
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(pos_price+loss)
+                    detail['max'].append(max_price)
+                    detail['min'].append(min_price)
+                    detail['direction'].append(1)
+                    detail['offset'].append('close')
+            
+            elif close_drop >= benifit:
+                short_diff.append(diff_0)
+                pos = 0
+                total_diff.append(diff_0)
+                direction.append(-1)
+                changed.append(-1*diff_0)
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(row[1]['close'])
+                    detail['max'].append(max_price)
+                    detail['min'].append(min_price)
+                    detail['direction'].append(1)
+                    detail['offset'].append('close')
+
     if is_fitting == True:
         res = {"long_diff":sum(long_diff),"long_trades":len(long_diff),
                 "short_diff":sum(short_diff),"short_trades":len(short_diff)}
@@ -126,6 +193,11 @@ def backtest(args,is_fitting = True):
         res_dict = {'direction':direction,'total_diff':total_diff,'changed':changed}
         res_pd = pd.DataFrame(res_dict)
         res_pd.to_csv(file_name,index=None)
+
+        detail_name = RES_PATH + base_name +f'-backtest_detail.csv'
+        detail_pd = pd.DataFrame(detail)
+        detail_pd.to_csv(detail_name,index=None)
+
         print("long_diff",sum(long_diff),"long_trades",len(long_diff))
         print("short_diff",sum(short_diff),"short_trades",len(short_diff))
 
@@ -213,8 +285,8 @@ def cal_sign(data):
     data['slope'] = ta.LINEARREG_SLOPE(data['sma'],3)
     data['grad'] = np.gradient(data['slope'])
     data['close_diff'] = data['close'].diff()
-    h1 = data[(data['close_diff'] <= 10)&(data['grad']>=2)].index
-    l1 =  data[(data['close_diff'] >= -10)&(data['grad']<=-2)].index
+    h1 = data[(data['close_diff'] <= 8)&(data['grad']>=2)].index
+    l1 =  data[(data['close_diff'] >= -8)&(data['grad']<=-2)].index
     data['sign']=0
     data.loc[h1,'sign'] = 1
     data.loc[l1,'sign'] = -1
@@ -228,10 +300,10 @@ if __name__ == "__main__":
     input_path = "D:/Code/jupyter_project/data_analysis/bar_analysis/bar_backtest/fu数据分析/fu88.csv"
     start = 2000
     end = 8000
-    data = get_data(input_path,start=start,end=end,period=20)
+    data = get_data(input_path,start=start,end=end,period=10)
     config = {
-        "benifit":[12,50,2],
-        "loss":[36,52,2],
+        "benifit":[3,25,1],
+        "loss":[5,15,1],
     }
 
     if is_fitting:
