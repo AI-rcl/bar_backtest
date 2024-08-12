@@ -40,13 +40,15 @@ def backtest(args,is_fitting = True):
 
     data = args[0]
     result = args[1]
-    benifit = args[2]
-    loss = args[3]
+    l_benifit = args[2]
+    l_loss = args[3]
+    s_benifit = args[4]
+    s_loss = args[5]
 
     is_orderd = False
     order_price = 0
     order_direction = 0
-
+    untraded = 0
 
     pos = 0
     long_diff = []
@@ -103,18 +105,22 @@ def backtest(args,is_fitting = True):
                     detail['min'].append(row[1]['low'])
                     detail['direction'].append(-1)
                     detail['offset'].append('open')
+                
+            else:
+                untraded += 1
+
             is_orderd = False
 
         if pos == 0 and not is_orderd:
             if sign == 1:
                 is_orderd = True
                 order_direction = 1
-                order_price = row[1]['close'] - 2
+                order_price = row[1]['close'] -3
 
             elif sign == -1:
                 is_orderd = True
                 order_direction = -1
-                order_price = row[1]['close'] + 2
+                order_price = row[1]['close'] + 3 
             continue
 
         elif pos == 1:
@@ -124,40 +130,41 @@ def backtest(args,is_fitting = True):
             high_diff = row[1]['high'] - pos_price
             low_diff  = pos_price - row[1]['low']
             
-            if close_diff >= benifit or high_diff >= benifit:
-                long_diff.append(benifit)
+            
+            if low_diff >= l_loss:
+
+                long_diff.append(-l_loss)
                 pos = 0
-                total_diff.append(benifit)
+                total_diff.append(-l_loss)
                 direction.append(1)
-                changed.append(benifit)
+                changed.append(-l_loss)
 
                 if not is_fitting:
                     detail['date'].append(row[0])
                     detail['open'].append(row[1]['open'])
                     detail['close'].append(row[1]['close'])
-                    detail['pos_price'].append(pos_price+benifit)
+                    detail['pos_price'].append(pos_price-l_loss)
                     detail['max'].append(row[1]['high'])
                     detail['min'].append(row[1]['low'])
                     detail['direction'].append(-1)
                     detail['offset'].append('close')
-
-            elif low_diff >= loss:
-
-                long_diff.append(-loss)
+            elif close_diff >= l_benifit or high_diff >= l_benifit:
+                long_diff.append(l_benifit)
                 pos = 0
-                total_diff.append(-loss)
+                total_diff.append(l_benifit)
                 direction.append(1)
-                changed.append(-loss)
+                changed.append(l_benifit)
 
                 if not is_fitting:
                     detail['date'].append(row[0])
                     detail['open'].append(row[1]['open'])
                     detail['close'].append(row[1]['close'])
-                    detail['pos_price'].append(pos_price-loss)
+                    detail['pos_price'].append(pos_price+l_benifit)
                     detail['max'].append(row[1]['high'])
                     detail['min'].append(row[1]['low'])
                     detail['direction'].append(-1)
                     detail['offset'].append('close')
+
 
             continue
 
@@ -166,46 +173,48 @@ def backtest(args,is_fitting = True):
             close_diff = pos_price - row[1]['close']
             low_diff = pos_price - row[1]['low']
             high_diff = row[1]['high'] - pos_price
+
+            if high_diff >= s_loss:
+                short_diff.append(-s_loss)
+                pos = 0
+                total_diff.append(-s_loss)
+                direction.append(-1)
+                changed.append(s_loss)
+
+                if not is_fitting:
+                    detail['date'].append(row[0])
+                    detail['open'].append(row[1]['open'])
+                    detail['close'].append(row[1]['close'])
+                    detail['pos_price'].append(pos_price + s_loss)
+                    detail['max'].append(row[1]['high'])
+                    detail['min'].append(row[1]['low'])
+                    detail['direction'].append(1)
+                    detail['offset'].append('close')
             
-            if close_diff >= benifit or low_diff >= benifit:
-                short_diff.append(benifit)
+            elif close_diff >= s_benifit or low_diff >= s_benifit:
+                short_diff.append(s_benifit)
                 pos = 0
-                total_diff.append(benifit)
+                total_diff.append(s_benifit)
                 direction.append(-1)
-                changed.append(-1*benifit)
+                changed.append(-1*s_benifit)
 
                 if not is_fitting:
                     detail['date'].append(row[0])
                     detail['open'].append(row[1]['open'])
                     detail['close'].append(row[1]['close'])
-                    detail['pos_price'].append(pos_price - benifit)
+                    detail['pos_price'].append(pos_price - s_benifit)
                     detail['max'].append(row[1]['high'])
                     detail['min'].append(row[1]['low'])
                     detail['direction'].append(1)
                     detail['offset'].append('close')
 
-            elif high_diff >= loss:
-                short_diff.append(-loss)
-                pos = 0
-                total_diff.append(-loss)
-                direction.append(-1)
-                changed.append(loss)
-
-                if not is_fitting:
-                    detail['date'].append(row[0])
-                    detail['open'].append(row[1]['open'])
-                    detail['close'].append(row[1]['close'])
-                    detail['pos_price'].append(pos_price + loss)
-                    detail['max'].append(row[1]['high'])
-                    detail['min'].append(row[1]['low'])
-                    detail['direction'].append(1)
-                    detail['offset'].append('close')
+            
             continue
 
     if is_fitting == True:
         res = {"long_diff":sum(long_diff),"long_trades":len(long_diff),
                 "short_diff":sum(short_diff),"short_trades":len(short_diff)}
-        result.append({f"{benifit}_{loss}":res})
+        result.append({f"{l_benifit}_{l_loss}_{s_benifit}_{s_loss}":res})
     else:
         base_name = os.path.basename(__file__).split('.')[0]
         file_name = RES_PATH + base_name +f'-backtest_result.csv'
@@ -219,7 +228,7 @@ def backtest(args,is_fitting = True):
 
         print("long_diff",sum(long_diff),"long_trades",len(long_diff))
         print("short_diff",sum(short_diff),"short_trades",len(short_diff))
-
+        print('untraded',untraded)
 
 def write_fitting_result(result):
     base_name = os.path.basename(__file__).split('.')[0]
@@ -276,7 +285,7 @@ def multi_backtest(input_path,data,worker_num =2,**config):
     result = manager.list()
     
     config_list = set_param(**config)
-    param =[(data,result,i[0],i[1]) for i in config_list]
+    param =[(data,result,i[0],i[1],i[2],i[3]) for i in config_list]
     pool = Pool(worker_num)
     pool.map(backtest, param)
     pool.close()
@@ -286,13 +295,20 @@ def multi_backtest(input_path,data,worker_num =2,**config):
 def set_param(**configs):
     print(configs)
     config_list = []
-    benifit = configs['benifit']
-    loss = configs['loss']
-    benifit_list = list(range(benifit[0],benifit[1],benifit[2]))
-    loss_list = list(range(loss[0],loss[1],loss[2]))
-    for i in benifit_list:
-        for j in loss_list:
-            config_list.append([i,j])
+    l_benifit = configs['l_benifit']
+    l_loss = configs['l_loss']
+    s_benifit = configs['s_benifit']
+    s_loss = configs['s_loss']
+
+    l_benifit_list = list(range(l_benifit[0],l_benifit[1],l_benifit[2]))
+    l_loss_list = list(range(l_loss[0],l_loss[1],l_loss[2]))
+    s_benifit_list = list(range(s_benifit[0],s_benifit[1],s_benifit[2]))
+    s_loss_list = list(range(s_loss[0],s_loss[1],s_loss[2]))
+    for i in l_benifit_list:
+        for j in l_loss_list:
+            for k in s_benifit_list:
+                for l in s_loss_list:
+                    config_list.append([i,j,k,l])
     return config_list
 
 #下单逻辑在这里改
@@ -313,14 +329,17 @@ if __name__ == "__main__":
         参数顺序data,result,benifit,loss
     """
     is_fitting = False
+
     input_path = "D:/Code/jupyter_project/data_analysis/bar_analysis/bar_backtest/rb数据分析/rb88.csv"
-    start = 2000
-    end = 8000
+    start = 30000
+    end = 69000
     data = get_data(input_path,start=start,end=end,period=3)
     data = cal_sign(data)
     config = {
-        "benifit":[3,15,1],
-        "loss":[3,15,1]
+        "l_benifit":[2,6,1],
+        "l_loss":[8,15,1],
+        "s_benifit":[2,6,1],
+        "s_loss":[8,15,1]
     }
 
     if is_fitting:
@@ -328,5 +347,5 @@ if __name__ == "__main__":
     else:
         param = read_best_parm()
         result = {}
-        args = (data,result,param[0],param[1])
+        args = (data,result,param[0],param[1],param[2],param[3])
         backtest(args=args,is_fitting=is_fitting )
